@@ -12,9 +12,12 @@ import tempfile
 import threading
 import time
 import zipfile
+import requests
+import webbrowser
 from collections import OrderedDict, deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
+
 
 try:
     from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QEvent, QTimer, Signal
@@ -85,8 +88,70 @@ except ImportError:
 APP_NAME = "Realtime AI Image Viewer"
 APP_SHORT_NAME = "RAIV"
 APP_ID = "RealtimeAIImageViewer.RAIV"
-APP_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = APP_DIR / "setting.json"
+
+CURRENT_VERSION = "0.1.0"
+
+GITHUB_RELEASE_API = (
+    "https://api.github.com/repos/GGGKicks/RAIV/releases/latest"
+)
+
+GITHUB_RELEASE_PAGE = (
+    "https://github.com/GGGKicks/RAIV/releases"
+)
+
+import sys
+
+if getattr(sys, "frozen", False):
+    APP_DIR = Path(sys.executable).resolve().parent
+else:
+    APP_DIR = Path(__file__).resolve().parent
+
+import os
+
+CONFIG_DIR = Path(os.getenv("APPDATA")) / "RAIV"
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+CONFIG_PATH = CONFIG_DIR / "setting.json"
+
+
+def check_for_updates(parent=None):
+     try:
+        response = requests.get(GITHUB_RELEASE_API, timeout=5)
+        response.raise_for_status()
+
+        latest_version = response.json()["tag_name"]
+
+        if latest_version.startswith("v"):
+            latest_version = latest_version[1:]
+
+        if latest_version != CURRENT_VERSION:
+            msg = QMessageBox(parent)
+            msg.setWindowTitle("Update Available")
+            msg.setText(
+                f"New version available!\n\n"
+                f"Current: {CURRENT_VERSION}\n"
+                f"Latest: {latest_version}"
+            )
+
+            download_btn = msg.addButton(
+                "Open Download Page",
+                QMessageBox.ButtonRole.AcceptRole
+            )
+
+            msg.addButton(
+                "Later",
+                QMessageBox.ButtonRole.RejectRole
+            )
+
+            msg.exec()
+
+            if msg.clickedButton() == download_btn:
+                webbrowser.open(GITHUB_RELEASE_PAGE)
+
+     except Exception as e:
+        print("Update check failed:", e)
+
+
 APP_ICON_ICO = APP_DIR / "assets" / "app_icon.ico"
 APP_ICON_PNG = APP_DIR / "assets" / "app_icon.png"
 REALESRGAN_FIXED_SCALE = 4
@@ -1322,6 +1387,8 @@ class MainWindow(QMainWindow):
         self.closing = False
 
         self.setWindowTitle(APP_NAME)
+        if APP_ICON_ICO.exists():
+            self.setWindowIcon(QIcon(str(APP_ICON_ICO)))
         self.setAcceptDrops(True)
         if APP_ICON_ICO.exists():
             self.setWindowIcon(QIcon(str(APP_ICON_ICO)))
@@ -3916,17 +3983,35 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
+
 def main() -> None:
     enable_high_dpi_awareness()
     set_process_app_user_model_id()
-    app = QApplication([])
+
+    app = QApplication(sys.argv)
+
     app.setApplicationName(APP_NAME)
+
     if APP_ICON_ICO.exists():
         app.setWindowIcon(QIcon(str(APP_ICON_ICO)))
+
     window = MainWindow()
     window.show()
-    app.exec()
 
+    # 既定アプリ起動対応
+    if len(sys.argv) > 1:
+        try:
+            target_path = Path(sys.argv[1])
+
+            if target_path.exists():
+                window.open_path_deferred(target_path)
+
+        except Exception as e:
+            print("Failed to open startup file:", e)
+
+    check_for_updates(window)
+
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
     main()
